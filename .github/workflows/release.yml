@@ -1,0 +1,119 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-frontend:
+    name: Build frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install deps & build
+        working-directory: web
+        run: npm ci && npm run build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist/
+          retention-days: 1
+
+  build-binaries:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            asset: lovie-linux-amd64
+          - goos: linux
+            goarch: arm64
+            asset: lovie-linux-arm64
+          - goos: darwin
+            goarch: amd64
+            asset: lovie-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            asset: lovie-darwin-arm64
+          - goos: windows
+            goarch: amd64
+            asset: lovie-windows-amd64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist/
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build \
+            -trimpath \
+            -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+            -o dist/${{ matrix.asset }} .
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          retention-days: 1
+
+  release:
+    name: Create GitHub Release
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lovie-*
+          path: release/
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: release
+        run: sha256sum lovie-* > checksums.txt && cat checksums.txt
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            release/lovie-*
+            release/checksums.txt
