@@ -1,6 +1,6 @@
 module github.com/090809/oteljsonl
 
-go 1.26.1
+go 1.25.8
 
 require (
 	go.opentelemetry.io/otel v1.43.0

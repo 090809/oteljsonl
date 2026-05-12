@@ -2,6 +2,7 @@ package oteljsonl
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 
 	otellog "go.opentelemetry.io/otel/log"
@@ -79,7 +80,7 @@ func (e *LogExporter) Shutdown(ctx context.Context) error {
 		return nil
 	}
 
-	if err := e.sink.closeRef(ctx); err != nil && err != errSinkClosed {
+	if err := e.sink.closeRef(ctx); err != nil && !errors.Is(err, errSinkClosed) {
 		return err
 	}
 
@@ -91,7 +92,7 @@ func (e *LogExporter) ForceFlush(ctx context.Context) error {
 		return nil
 	}
 
-	if err := e.sink.flush(ctx); err != nil && err != errSinkClosed {
+	if err := e.sink.flush(ctx); err != nil && !errors.Is(err, errSinkClosed) {
 		return err
 	}
 

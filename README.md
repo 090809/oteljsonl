@@ -38,6 +38,12 @@ cd oteljsonl
 go test ./...
 ```
 
+To run the exporter benchmarks:
+
+```bash
+go test ./... -run '^$' -bench 'Exporter' -benchmem
+```
+
 ## What the module does
 
 `oteljsonl` converts OTel SDK data into JSON-friendly envelopes and writes one JSON object per line.

@@ -2,6 +2,7 @@ package oteljsonl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 
@@ -53,7 +54,7 @@ func (e *MetricExporter) ForceFlush(ctx context.Context) error {
 	}
 
 	if err := e.sink.flush(ctx); err != nil {
-		if err == errSinkClosed {
+		if errors.Is(err, errSinkClosed) {
 			return sdkmetric.ErrExporterShutdown
 		}
 
@@ -69,7 +70,7 @@ func (e *MetricExporter) Shutdown(ctx context.Context) error {
 	}
 
 	if err := e.sink.closeRef(ctx); err != nil {
-		if err == errSinkClosed {
+		if errors.Is(err, errSinkClosed) {
 			return nil
 		}
 

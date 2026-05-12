@@ -2,6 +2,7 @@ package oteljsonl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 
@@ -51,7 +52,7 @@ func (e *TraceExporter) Shutdown(ctx context.Context) error {
 		return nil
 	}
 
-	if err := e.sink.closeRef(ctx); err != nil && err != errSinkClosed {
+	if err := e.sink.closeRef(ctx); err != nil && !errors.Is(err, errSinkClosed) {
 		return err
 	}
 
