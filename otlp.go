@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
@@ -90,100 +89,63 @@ func attrSetToProto(set attribute.Set) []*commonpb.KeyValue {
 func attrValueToProto(v attribute.Value) *commonpb.AnyValue {
 	switch v.Type() {
 	case attribute.BOOL:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_BoolValue{BoolValue: v.AsBool()}}
+		return protoBool(v.AsBool())
 	case attribute.INT64:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_IntValue{IntValue: v.AsInt64()}}
+		return protoInt64(v.AsInt64())
 	case attribute.FLOAT64:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_DoubleValue{DoubleValue: v.AsFloat64()}}
+		return protoFloat64(v.AsFloat64())
 	case attribute.STRING:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: v.AsString()}}
+		return protoString(v.AsString())
 	case attribute.BOOLSLICE:
-		return protoArrayFromBools(v.AsBoolSlice())
+		return protoArray(v.AsBoolSlice(), protoBool)
 	case attribute.INT64SLICE:
-		return protoArrayFromInt64s(v.AsInt64Slice())
+		return protoArray(v.AsInt64Slice(), protoInt64)
 	case attribute.FLOAT64SLICE:
-		return protoArrayFromFloat64s(v.AsFloat64Slice())
+		return protoArray(v.AsFloat64Slice(), protoFloat64)
 	case attribute.STRINGSLICE:
-		return protoArrayFromStrings(v.AsStringSlice())
-	default:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: v.Emit()}}
-	}
-}
-
-func protoArrayFromBools(values []bool) *commonpb.AnyValue {
-	items := make([]*commonpb.AnyValue, 0, len(values))
-	for _, value := range values {
-		items = append(items, &commonpb.AnyValue{Value: &commonpb.AnyValue_BoolValue{BoolValue: value}})
-	}
-
-	return &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{Values: items}}}
-}
-
-func protoArrayFromInt64s(values []int64) *commonpb.AnyValue {
-	items := make([]*commonpb.AnyValue, 0, len(values))
-	for _, value := range values {
-		items = append(items, &commonpb.AnyValue{Value: &commonpb.AnyValue_IntValue{IntValue: value}})
-	}
-
-	return &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{Values: items}}}
-}
-
-func protoArrayFromFloat64s(values []float64) *commonpb.AnyValue {
-	items := make([]*commonpb.AnyValue, 0, len(values))
-	for _, value := range values {
-		items = append(items, &commonpb.AnyValue{Value: &commonpb.AnyValue_DoubleValue{DoubleValue: value}})
-	}
-
-	return &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{Values: items}}}
-}
-
-func protoArrayFromStrings(values []string) *commonpb.AnyValue {
-	items := make([]*commonpb.AnyValue, 0, len(values))
-	for _, value := range values {
-		items = append(items, &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: value}})
-	}
-
-	return &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{Values: items}}}
-}
-
-func logValueToProto(v otellog.Value) *commonpb.AnyValue {
-	switch v.Kind() {
-	case otellog.KindEmpty:
+		return protoArray(v.AsStringSlice(), protoString)
+	case attribute.EMPTY:
+		// OTLP models an empty value as an AnyValue with no field set, which is
+		// also what the log pipeline has always emitted for an unset record body.
 		return &commonpb.AnyValue{}
-	case otellog.KindBool:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_BoolValue{BoolValue: v.AsBool()}}
-	case otellog.KindFloat64:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_DoubleValue{DoubleValue: v.AsFloat64()}}
-	case otellog.KindInt64:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_IntValue{IntValue: v.AsInt64()}}
-	case otellog.KindString:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: v.AsString()}}
-	case otellog.KindBytes:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_BytesValue{BytesValue: append([]byte(nil), v.AsBytes()...)}}
-	case otellog.KindSlice:
-		values := v.AsSlice()
-
-		items := make([]*commonpb.AnyValue, 0, len(values))
-		for _, item := range values {
-			items = append(items, logValueToProto(item))
-		}
-
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{Values: items}}}
-	case otellog.KindMap:
-		kvs := v.AsMap()
-
-		items := make([]*commonpb.KeyValue, 0, len(kvs))
-		for _, kv := range kvs {
-			items = append(items, &commonpb.KeyValue{
-				Key:   kv.Key,
-				Value: logValueToProto(kv.Value),
-			})
-		}
-
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_KvlistValue{KvlistValue: &commonpb.KeyValueList{Values: items}}}
+	case attribute.BYTESLICE:
+		// AsByteSlice converts the internally stored string, so it already
+		// returns a fresh slice that the caller may retain.
+		return &commonpb.AnyValue{Value: &commonpb.AnyValue_BytesValue{BytesValue: v.AsByteSlice()}}
+	case attribute.SLICE:
+		return protoArray(v.AsSlice(), attrValueToProto)
+	case attribute.MAP:
+		return &commonpb.AnyValue{Value: &commonpb.AnyValue_KvlistValue{
+			KvlistValue: &commonpb.KeyValueList{Values: attrSliceToProto(v.AsMap())},
+		}}
 	default:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: v.String()}}
+		return protoString(v.String())
 	}
+}
+
+func protoBool(value bool) *commonpb.AnyValue {
+	return &commonpb.AnyValue{Value: &commonpb.AnyValue_BoolValue{BoolValue: value}}
+}
+
+func protoInt64(value int64) *commonpb.AnyValue {
+	return &commonpb.AnyValue{Value: &commonpb.AnyValue_IntValue{IntValue: value}}
+}
+
+func protoFloat64(value float64) *commonpb.AnyValue {
+	return &commonpb.AnyValue{Value: &commonpb.AnyValue_DoubleValue{DoubleValue: value}}
+}
+
+func protoString(value string) *commonpb.AnyValue {
+	return &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: value}}
+}
+
+func protoArray[T any](values []T, convert func(T) *commonpb.AnyValue) *commonpb.AnyValue {
+	items := make([]*commonpb.AnyValue, 0, len(values))
+	for _, value := range values {
+		items = append(items, convert(value))
+	}
+
+	return &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{Values: items}}}
 }
 
 func traceIDBytes(id trace.TraceID) []byte {

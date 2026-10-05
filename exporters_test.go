@@ -442,8 +442,8 @@ func emitLogForSharedExporterTest(t *testing.T, ctx context.Context, res *sdkres
 	record.SetTimestamp(time.Unix(200, 0))
 	record.SetSeverity(apilog.SeverityInfo)
 	record.SetSeverityText("INFO")
-	record.SetBody(apilog.StringValue("hello log"))
-	record.AddAttributes(apilog.String("log.attr", "value"))
+	record.SetBody(attribute.StringValue("hello log"))
+	record.AddAttributes(attribute.String("log.attr", "value"))
 	logger.Emit(ctx, record)
 
 	if err := logProvider.Shutdown(ctx); err != nil {
@@ -549,4 +549,100 @@ func anotherSpanContext(t *testing.T) trace.SpanContext {
 		TraceID: traceID,
 		SpanID:  spanID,
 	})
+}
+
+func TestAttrValueToProtoComplexKinds(t *testing.T) {
+	t.Parallel()
+
+	empty := attrValueToProto(attribute.Value{})
+	if empty == nil || empty.GetValue() != nil {
+		t.Fatalf("empty value = %v, want an AnyValue with no field set", empty)
+	}
+
+	// An unset attribute is emitted as {} rather than {"stringValue":""}, which is
+	// how OTLP spells an empty value and what the log pipeline already produced.
+	if raw, err := marshalProtoLine(empty); err != nil || string(raw) != "{}" {
+		t.Fatalf("empty value JSON = %q (err %v), want {}", raw, err)
+	}
+
+	byteVal := attrValueToProto(attribute.ByteSliceValue([]byte{1, 2, 3}))
+	if got := byteVal.GetBytesValue(); !bytes.Equal(got, []byte{1, 2, 3}) {
+		t.Fatalf("bytes value = %v, want [1 2 3]", got)
+	}
+
+	slice := attrValueToProto(attribute.SliceValue(
+		attribute.StringValue("a"),
+		attribute.Int64Value(7),
+	))
+
+	items := slice.GetArrayValue().GetValues()
+	if len(items) != 2 {
+		t.Fatalf("slice length = %d, want 2", len(items))
+	}
+
+	if items[0].GetStringValue() != "a" || items[1].GetIntValue() != 7 {
+		t.Fatalf("slice items = %v, want [a 7]", items)
+	}
+
+	kvlist := attrValueToProto(attribute.MapValue(
+		attribute.Bool("flag", true),
+	))
+
+	entries := kvlist.GetKvlistValue().GetValues()
+	if len(entries) != 1 || entries[0].GetKey() != "flag" || !entries[0].GetValue().GetBoolValue() {
+		t.Fatalf("map entries = %v, want flag=true", entries)
+	}
+}
+
+func TestAttrValueToProtoSliceKinds(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		value attribute.Value
+		want  string
+	}{
+		{
+			name:  "bools",
+			value: attribute.BoolSliceValue([]bool{true, false}),
+			want:  `{"arrayValue":{"values":[{"boolValue":true},{"boolValue":false}]}}`,
+		},
+		{
+			name:  "int64s",
+			value: attribute.Int64SliceValue([]int64{1, -2}),
+			want:  `{"arrayValue":{"values":[{"intValue":"1"},{"intValue":"-2"}]}}`,
+		},
+		{
+			name:  "float64s",
+			value: attribute.Float64SliceValue([]float64{1.5, -0.25}),
+			want:  `{"arrayValue":{"values":[{"doubleValue":1.5},{"doubleValue":-0.25}]}}`,
+		},
+		{
+			name:  "strings",
+			value: attribute.StringSliceValue([]string{"a", "b"}),
+			want:  `{"arrayValue":{"values":[{"stringValue":"a"},{"stringValue":"b"}]}}`,
+		},
+		{
+			name:  "empty",
+			value: attribute.StringSliceValue(nil),
+			want:  `{"arrayValue":{}}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			raw, err := marshalProtoLine(attrValueToProto(tc.value))
+			if err != nil {
+				t.Fatalf("marshal %s: %v", tc.name, err)
+			}
+
+			// protojson inserts a build-dependent space after separators, so
+			// compare without it rather than pinning the exact bytes.
+			if got := strings.ReplaceAll(string(raw), " ", ""); got != tc.want {
+				t.Fatalf("%s = %s, want %s", tc.name, got, tc.want)
+			}
+		})
+	}
 }

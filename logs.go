@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync/atomic"
 
+	"go.opentelemetry.io/otel/attribute"
 	otellog "go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	colllogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
@@ -57,7 +58,7 @@ func logRecordFromSDK(rec sdklog.Record) *logspb.LogRecord {
 		ObservedTimeUnixNano:   timestampUnixNano(rec.ObservedTimestamp()),
 		SeverityNumber:         severityToProto(rec.Severity()),
 		SeverityText:           rec.SeverityText(),
-		Body:                   logValueToProto(rec.Body()),
+		Body:                   attrValueToProto(rec.Body()),
 		EventName:              rec.EventName(),
 		Attributes:             logRecordAttributes(rec),
 		DroppedAttributesCount: intToUint32(rec.DroppedAttributes()),
@@ -106,10 +107,10 @@ func logRecordAttributes(record sdklog.Record) []*commonpb.KeyValue {
 
 	out := make([]*commonpb.KeyValue, 0, record.AttributesLen())
 
-	record.WalkAttributes(func(kv otellog.KeyValue) bool {
+	record.WalkAttributes(func(kv attribute.KeyValue) bool {
 		out = append(out, &commonpb.KeyValue{
-			Key:   kv.Key,
-			Value: logValueToProto(kv.Value),
+			Key:   string(kv.Key),
+			Value: attrValueToProto(kv.Value),
 		})
 
 		return true
