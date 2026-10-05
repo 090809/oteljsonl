@@ -89,76 +89,60 @@ func attrSetToProto(set attribute.Set) []*commonpb.KeyValue {
 func attrValueToProto(v attribute.Value) *commonpb.AnyValue {
 	switch v.Type() {
 	case attribute.BOOL:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_BoolValue{BoolValue: v.AsBool()}}
+		return protoBool(v.AsBool())
 	case attribute.INT64:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_IntValue{IntValue: v.AsInt64()}}
+		return protoInt64(v.AsInt64())
 	case attribute.FLOAT64:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_DoubleValue{DoubleValue: v.AsFloat64()}}
+		return protoFloat64(v.AsFloat64())
 	case attribute.STRING:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: v.AsString()}}
+		return protoString(v.AsString())
 	case attribute.BOOLSLICE:
-		return protoArrayFromBools(v.AsBoolSlice())
+		return protoArray(v.AsBoolSlice(), protoBool)
 	case attribute.INT64SLICE:
-		return protoArrayFromInt64s(v.AsInt64Slice())
+		return protoArray(v.AsInt64Slice(), protoInt64)
 	case attribute.FLOAT64SLICE:
-		return protoArrayFromFloat64s(v.AsFloat64Slice())
+		return protoArray(v.AsFloat64Slice(), protoFloat64)
 	case attribute.STRINGSLICE:
-		return protoArrayFromStrings(v.AsStringSlice())
+		return protoArray(v.AsStringSlice(), protoString)
 	case attribute.EMPTY:
+		// OTLP models an empty value as an AnyValue with no field set, which is
+		// also what the log pipeline has always emitted for an unset record body.
 		return &commonpb.AnyValue{}
 	case attribute.BYTESLICE:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_BytesValue{BytesValue: append([]byte(nil), v.AsByteSlice()...)}}
+		// AsByteSlice converts the internally stored string, so it already
+		// returns a fresh slice that the caller may retain.
+		return &commonpb.AnyValue{Value: &commonpb.AnyValue_BytesValue{BytesValue: v.AsByteSlice()}}
 	case attribute.SLICE:
-		return protoArrayFromValues(v.AsSlice())
+		return protoArray(v.AsSlice(), attrValueToProto)
 	case attribute.MAP:
 		return &commonpb.AnyValue{Value: &commonpb.AnyValue_KvlistValue{
 			KvlistValue: &commonpb.KeyValueList{Values: attrSliceToProto(v.AsMap())},
 		}}
 	default:
-		return &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: v.String()}}
+		return protoString(v.String())
 	}
 }
 
-func protoArrayFromBools(values []bool) *commonpb.AnyValue {
-	items := make([]*commonpb.AnyValue, 0, len(values))
-	for _, value := range values {
-		items = append(items, &commonpb.AnyValue{Value: &commonpb.AnyValue_BoolValue{BoolValue: value}})
-	}
-
-	return &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{Values: items}}}
+func protoBool(value bool) *commonpb.AnyValue {
+	return &commonpb.AnyValue{Value: &commonpb.AnyValue_BoolValue{BoolValue: value}}
 }
 
-func protoArrayFromInt64s(values []int64) *commonpb.AnyValue {
-	items := make([]*commonpb.AnyValue, 0, len(values))
-	for _, value := range values {
-		items = append(items, &commonpb.AnyValue{Value: &commonpb.AnyValue_IntValue{IntValue: value}})
-	}
-
-	return &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{Values: items}}}
+func protoInt64(value int64) *commonpb.AnyValue {
+	return &commonpb.AnyValue{Value: &commonpb.AnyValue_IntValue{IntValue: value}}
 }
 
-func protoArrayFromFloat64s(values []float64) *commonpb.AnyValue {
-	items := make([]*commonpb.AnyValue, 0, len(values))
-	for _, value := range values {
-		items = append(items, &commonpb.AnyValue{Value: &commonpb.AnyValue_DoubleValue{DoubleValue: value}})
-	}
-
-	return &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{Values: items}}}
+func protoFloat64(value float64) *commonpb.AnyValue {
+	return &commonpb.AnyValue{Value: &commonpb.AnyValue_DoubleValue{DoubleValue: value}}
 }
 
-func protoArrayFromValues(values []attribute.Value) *commonpb.AnyValue {
-	items := make([]*commonpb.AnyValue, 0, len(values))
-	for _, value := range values {
-		items = append(items, attrValueToProto(value))
-	}
-
-	return &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{Values: items}}}
+func protoString(value string) *commonpb.AnyValue {
+	return &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: value}}
 }
 
-func protoArrayFromStrings(values []string) *commonpb.AnyValue {
+func protoArray[T any](values []T, convert func(T) *commonpb.AnyValue) *commonpb.AnyValue {
 	items := make([]*commonpb.AnyValue, 0, len(values))
 	for _, value := range values {
-		items = append(items, &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: value}})
+		items = append(items, convert(value))
 	}
 
 	return &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{Values: items}}}
