@@ -442,8 +442,8 @@ func emitLogForSharedExporterTest(t *testing.T, ctx context.Context, res *sdkres
 	record.SetTimestamp(time.Unix(200, 0))
 	record.SetSeverity(apilog.SeverityInfo)
 	record.SetSeverityText("INFO")
-	record.SetBody(apilog.StringValue("hello log"))
-	record.AddAttributes(apilog.String("log.attr", "value"))
+	record.SetBody(attribute.StringValue("hello log"))
+	record.AddAttributes(attribute.String("log.attr", "value"))
 	logger.Emit(ctx, record)
 
 	if err := logProvider.Shutdown(ctx); err != nil {
@@ -549,4 +549,41 @@ func anotherSpanContext(t *testing.T) trace.SpanContext {
 		TraceID: traceID,
 		SpanID:  spanID,
 	})
+}
+
+func TestAttrValueToProtoComplexKinds(t *testing.T) {
+	t.Parallel()
+
+	empty := attrValueToProto(attribute.Value{})
+	if empty.GetValue() != nil {
+		t.Fatalf("empty value = %v, want unset", empty.GetValue())
+	}
+
+	bytes := attrValueToProto(attribute.ByteSliceValue([]byte{1, 2, 3}))
+	if got := bytes.GetBytesValue(); string(got) != string([]byte{1, 2, 3}) {
+		t.Fatalf("bytes value = %v, want [1 2 3]", got)
+	}
+
+	slice := attrValueToProto(attribute.SliceValue(
+		attribute.StringValue("a"),
+		attribute.Int64Value(7),
+	))
+
+	items := slice.GetArrayValue().GetValues()
+	if len(items) != 2 {
+		t.Fatalf("slice length = %d, want 2", len(items))
+	}
+
+	if items[0].GetStringValue() != "a" || items[1].GetIntValue() != 7 {
+		t.Fatalf("slice items = %v, want [a 7]", items)
+	}
+
+	kvlist := attrValueToProto(attribute.MapValue(
+		attribute.Bool("flag", true),
+	))
+
+	entries := kvlist.GetKvlistValue().GetValues()
+	if len(entries) != 1 || entries[0].GetKey() != "flag" || !entries[0].GetValue().GetBoolValue() {
+		t.Fatalf("map entries = %v, want flag=true", entries)
+	}
 }
